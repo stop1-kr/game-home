@@ -264,3 +264,197 @@ game_html = """
             targetVar.innerText = eventStages[stage];
         } else {
             title.innerText = "y = a(x-p)² + q";
+            targetBox.classList.remove("event");
+            targetVar.innerText = normalStages[stage];
+        }
+        drawMathGraph();
+    }
+
+    function drawMathGraph() {
+        const w = graphCanvas.width; const h = graphCanvas.height;
+        const limit = 10; const scale = w / (limit * 2); 
+        
+        graphCtx.clearRect(0, 0, w, h);
+        graphCtx.lineWidth = 1;
+        for(let i = -limit; i <= limit; i++) {
+            graphCtx.strokeStyle = (i % 5 === 0) ? "#adb5bd" : "#f1f3f5"; 
+            let px = w/2 + i*scale; let py = h/2 - i*scale;
+            graphCtx.beginPath(); graphCtx.moveTo(px, 0); graphCtx.lineTo(px, h); graphCtx.stroke();
+            graphCtx.beginPath(); graphCtx.moveTo(0, py); graphCtx.lineTo(w, py); graphCtx.stroke();
+        }
+        graphCtx.strokeStyle = "#495057"; graphCtx.lineWidth = 2;
+        graphCtx.beginPath(); graphCtx.moveTo(0, h/2); graphCtx.lineTo(w, h/2);
+        graphCtx.moveTo(w/2, 0); graphCtx.lineTo(w/2, h); graphCtx.stroke();
+
+        graphCtx.fillStyle = "#212529"; graphCtx.font = "bold 12px Arial";
+        graphCtx.textAlign = "center"; graphCtx.textBaseline = "middle";
+        for(let i = -limit; i <= limit; i+=5) { 
+             if(i===0) continue;
+             graphCtx.fillText(i, w/2 + i*scale, h/2 + 15);
+             graphCtx.fillText(i, w/2 - 15, h/2 - i*scale);
+        }
+        graphCtx.fillText("0", w/2 - 10, h/2 + 15);
+        
+        graphCtx.strokeStyle = isEventMode ? "#7209b7" : "#e63946"; 
+        graphCtx.lineWidth = 4; graphCtx.beginPath();
+        for(let px = 0; px <= w; px += 2) {
+            let mathX = (px - w/2) / scale;
+            let mathY = currentA * Math.pow(mathX - currentP, 2) + currentQ;
+            let py = h/2 - mathY * scale;
+            if(px === 0) graphCtx.moveTo(px, py); else graphCtx.lineTo(px, py);
+        }
+        graphCtx.stroke();
+    }
+
+    function spawnFoods() {
+        foods = [];
+        let correctVal, vals = [];
+
+        if (isEventMode) {
+            correctVal = (stage === 0) ? genA : (stage === 1) ? genB : genC;
+            let wrong1, wrong2;
+            do { wrong1 = correctVal + Math.floor(Math.random()*10) - 5; } while(wrong1 === correctVal);
+            do { wrong2 = correctVal + Math.floor(Math.random()*10) - 5; } while(wrong2 === correctVal || wrong2 === wrong1);
+            vals = [{v: correctVal, c: true}, {v: wrong1, c: false}, {v: wrong2, c: false}];
+        } else {
+            if (stage === 0) { 
+                vals = [{v: "+", c: currentA > 0}, {v: "-", c: currentA < 0}];
+            } else { 
+                correctVal = (stage === 1) ? currentP : currentQ;
+                let w1, w2;
+                const range = 6;
+                do { w1 = Math.floor(Math.random()*(range*2+1))-range; } while(w1===correctVal);
+                do { w2 = Math.floor(Math.random()*(range*2+1))-range; } while(w2===correctVal || w2===w1);
+                vals = [{v: correctVal, c: true}, {v: w1, c: false}, {v: w2, c: false}];
+            }
+        }
+        
+        vals.forEach(item => {
+            let fx, fy, occupied;
+            do {
+                occupied = false;
+                fx = Math.floor(Math.random() * (tileCount - 2)) + 1;
+                fy = Math.floor(Math.random() * (tileCount - 2)) + 1;
+                for(let s of snake) if(s.x === fx && s.y === fy) occupied = true;
+                for(let f of foods) if(f.x === fx && f.y === fy) occupied = true;
+            } while(occupied);
+            foods.push({x: fx, y: fy, val: item.v, isCorrect: item.c});
+        });
+    }
+
+    function updateGame() {
+        if(isGameOver) return;
+        dx = nextDx; dy = nextDy;
+        let head = {x: snake[0].x + dx, y: snake[0].y + dy};
+        
+        if(head.x<0||head.x>=tileCount||head.y<0||head.y>=tileCount) { endGame("벽에 부딪혔습니다! 💥"); return; }
+        for(let i=0; i<snake.length; i++) { if(head.x===snake[i].x && head.y===snake[i].y) { endGame("자기 꼬리를 물었습니다! 😵"); return; } }
+        
+        snake.unshift(head); 
+        
+        let ateIdx = foods.findIndex(f => f.x === head.x && f.y === head.y);
+        if(ateIdx !== -1) {
+            if(foods[ateIdx].isCorrect) {
+                if(isEventMode) {
+                    snake.unshift({...head}); snake.unshift({...head});
+                    score += 3;
+                } else {
+                    score += 1;
+                }
+                document.getElementById("score").innerText = score;
+                
+                calculateSpeed();
+                if(!isBoosting) startGameLoop(); 
+
+                stage++;
+                if(stage > 2) { 
+                    problemsSolved++;
+                    nextProblem(); 
+                } else { 
+                    updateUI(); spawnFoods(); 
+                }
+            } else {
+                endGame(`오답! [ ${foods[ateIdx].val} ] 을(를) 먹었습니다. 😭`); return;
+            }
+        } else {
+            snake.pop(); 
+        }
+        drawGame();
+    }
+
+    function drawGame() {
+        ctx.fillStyle = "#1a1a2e"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        foods.forEach(f => {
+            ctx.fillStyle = isEventMode ? "#ffd60a" : "#ffb703"; 
+            ctx.beginPath(); ctx.arc(f.x*gridSize+gridSize/2, f.y*gridSize+gridSize/2, gridSize/2-2, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#023047"; 
+            ctx.font = (f.val==="+"||f.val==="-") ? "bold 26px Arial" : "bold 16px Arial";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(f.val, f.x*gridSize+gridSize/2, f.y*gridSize+gridSize/2);
+        });
+        for(let i=0; i<snake.length; i++) {
+            let s = snake[i];
+            if(i === 0) { 
+                ctx.fillStyle = isEventMode ? "#9b5de5" : "#06d6a0"; 
+                ctx.fillRect(s.x*gridSize, s.y*gridSize, gridSize-1, gridSize-1);
+                ctx.fillStyle = "white"; ctx.fillRect(s.x*gridSize+4, s.y*gridSize+4, 5, 5); ctx.fillRect(s.x*gridSize+15, s.y*gridSize+4, 5, 5);
+            } else { 
+                let baseColor = isEventMode ? {r:155, g:93, b:229} : {r:6, g:214, b:160};
+                let darken = i*2;
+                ctx.fillStyle = `rgb(${Math.max(0,baseColor.r-darken)}, ${Math.max(0,baseColor.g-darken)}, ${Math.max(0,baseColor.b-darken)})`;
+                ctx.fillRect(s.x*gridSize+1, s.y*gridSize+1, gridSize-3, gridSize-3);
+            }
+        }
+    }
+
+    function resetGame() {
+        snake = [ {x: 10, y: 10}, {x: 10, y: 11}, {x: 10, y: 12} ];
+        score = 3; document.getElementById("score").innerText = score;
+        dx = 0; dy = -1; nextDx = 0; nextDy = -1;
+        isBoosting = false; problemsSolved = 0; isEventMode = false;
+        document.getElementById("warningOverlay").style.display = "none";
+        document.getElementById("overlay").style.display = "none";
+        
+        calculateSpeed(); 
+        nextProblem();
+        isGameOver = false;
+        document.getElementById("overlay").style.display = "none"; // 강제 해제
+        startGameLoop();
+    }
+
+    function endGame(msg) {
+        isGameOver = true; clearInterval(gameLoop);
+        document.getElementById("overTitle").innerText = "게임 오버! 💀";
+        document.getElementById("overDesc").innerHTML = `${msg}<br>최종 길이: <b>${score}</b> 🐛<br>(길수록 빨라집니다!)`;
+        document.getElementById("overlay").style.display = "flex";
+        isBoosting = false; document.getElementById("btnBoost").classList.remove("active");
+    }
+
+    function changeDir(newDx, newDy) {
+        if (dx !== 0 && newDy !== 0) { nextDx = 0; nextDy = newDy; }
+        if (dy !== 0 && newDx !== 0) { nextDx = newDx; nextDy = 0; }
+        if (dx === 0 && dy === 0) { nextDx = newDx; nextDy = newDy; }
+    }
+    const bindBtn = (id, ndx, ndy) => document.getElementById(id).addEventListener("pointerdown", (e)=>{e.preventDefault();changeDir(ndx, ndy);});
+    bindBtn("btnUp", 0, -1); bindBtn("btnDown", 0, 1); bindBtn("btnLeft", -1, 0); bindBtn("btnRight", 1, 0);
+
+    const btnBoost = document.getElementById("btnBoost");
+    const toggleBoost = (on) => {
+        if(isGameOver || document.getElementById("warningOverlay").style.display === "flex") return; // 이벤트 멈춤 중에는 부스트 불가
+        isBoosting = on;
+        if(on) btnBoost.classList.add("active"); else btnBoost.classList.remove("active");
+        startGameLoop();
+    };
+    btnBoost.addEventListener("pointerdown", (e)=>{e.preventDefault(); toggleBoost(true);});
+    ["pointerup", "pointerleave", "pointercancel"].forEach(evt => btnBoost.addEventListener(evt, (e)=>{e.preventDefault(); toggleBoost(false);}));
+    document.getElementById("startBtn").addEventListener("pointerdown", (e)=>{e.preventDefault(); resetGame();});
+
+    document.getElementById("overlay").style.display = "flex"; // 시작 전 대기화면
+    drawMathGraph();
+</script>
+</body>
+</html>
+"""
+
+# 전체 높이를 660으로 줄여 아이패드에서 스크롤 없이 하단 버튼까지 완벽히 보이도록 최적화
+components.html(game_html, height=660)
