@@ -76,7 +76,7 @@ canvas {display: block; border: 3px solid #4A3526; border-radius: 10px; touch-ac
         <button class="ans-btn" data-idx="2">C</button>
       </div>
       <div class="gauge-wrap"><div class="gauge-fill" id="gauge"></div></div>
-      <div class="hint">① 문제를 풀고 정답 클릭 → 점프 기회 5회 획득. ② 방향 화살표(◀▲▶)를 꾹 누르면 게이지가 차오르고, 떼면 그 방향으로 점프합니다.</div>
+      <div class="hint">① 문제를 풀고 정답 클릭 → 점프 기회 5회 획득. 오답 시 랜덤하게 튕겨나갑니다. ② 방향 화살표(◀▲▶)를 꾹 누르면 게이지가 차오르고, 떼면 그 방향으로 점프합니다.</div>
     </div>
   </div>
 </div>
@@ -88,9 +88,9 @@ const WORLD_H = 3600, WORLD_W = W;
 
 const GRAVITY = 0.55, MAX_JUMP_VY = 16.5, MAX_JUMP_VX = 7;
 const WALL_BOUNCE = 0.62;
-const FRICTION_GROUND = 0.55;          // 일반 타일 마찰 강화 (값이 작을수록 빨리 멈춤)
-const STOP_THRESHOLD = 0.25;           // 미끄럼 정지 임계
-const SLIDE_NORMAL = 0.08, SLIDE_STEEP = 0.22;
+const FRICTION_GROUND = 0.55;          
+const STOP_THRESHOLD = 0.25;           
+const SLIDE_NORMAL = 0.015, SLIDE_STEEP = 0.035; // 천천히 끊임없이 미끄러지도록 수정
 const CHARGE_MAX_MS = 1000;
 const JUMPS_PER_PROBLEM = 5;
 
@@ -107,6 +107,7 @@ function updateCamera() {
   camY = Math.max(0, Math.min(WORLD_H - H, target));
 }
 
+// 빨간 함정 블럭을 제거하고 구조 유지
 const platforms = [
   {x:0, y:WORLD_H-40, w:WORLD_W, h:40, type:'flat'},
   {x:170, y:WORLD_H-130, w:110, h:18, type:'flat'},
@@ -115,7 +116,6 @@ const platforms = [
   {x:180, y:WORLD_H-340, w:90, h:18, type:'flat'},
   {x:320, y:WORLD_H-410, w:120, h:18, type:'slope', dir:1},
   {x:30, y:WORLD_H-470, w:130, h:18, type:'slope', dir:-1},
-  {x:220, y:WORLD_H-530, w:60, h:14, type:'trap'},
   {x:60, y:WORLD_H-610, w:100, h:18, type:'flat'},
   {x:280, y:WORLD_H-700, w:120, h:18, type:'flat'},
   {x:40, y:WORLD_H-800, w:90, h:18, type:'flat'},
@@ -126,7 +126,6 @@ const platforms = [
   {x:40, y:WORLD_H-1260, w:90, h:18, type:'flat'},
   {x:220, y:WORLD_H-1340, w:90, h:18, type:'flat'},
   {x:350, y:WORLD_H-1430, w:90, h:18, type:'flat'},
-  {x:160, y:WORLD_H-1510, w:60, h:14, type:'trap'},
   {x:40, y:WORLD_H-1600, w:80, h:18, type:'flat'},
   {x:340, y:WORLD_H-1600, w:80, h:18, type:'flat'},
   {x:60, y:WORLD_H-1700, w:90, h:18, type:'flat'},
@@ -152,22 +151,20 @@ const windZones = [
 ];
 
 const choco = {x: 230, y: WORLD_H-2830, r: 14, collected: false};
-const GOAL_HEIGHT_M = Math.round((WORLD_H - 80 - choco.y) / 10);
 let particles = [];
 
 // ---------- 게임 상태 ----------
-// mode: 'solve' (문제 풀이) | 'jump' (점프 5회)
 let mode = 'solve';
 let jumpsLeft = 0;
 let currentProblem = null;
+let loadingProblem = false; // 중복 로드 방지 플래그
 
-// 충전(꾹누름) 상태
-let chargingDir = 0;        // -1, 0(위), 1
+let chargingDir = 0;        
 let chargingActive = false;
 let chargeStart = 0;
 let chargingBtnEl = null;
 
-// ---------- 문제 생성 ----------
+// ---------- 문제 생성 로직 (그대로 유지) ----------
 function gcd(a,b){return b===0?a:gcd(b,a%b);}
 function frac(n,d){const g=gcd(Math.abs(n),Math.abs(d));n/=g;d/=g;return d===1?(''+n):(n+'/'+d);}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}}
@@ -180,7 +177,6 @@ const rightTris = [
 function genProblem() {
   const t = Math.floor(Math.random()*4);
   if (t === 0) {
-    // 유형1: 세 변 → 삼각비 값
     const tri = rightTris[Math.floor(Math.random()*rightTris.length)];
     const angle = Math.random()<0.5 ? 'A' : 'B';
     const ratio = ['sin','cos','tan'][Math.floor(Math.random()*3)];
@@ -198,7 +194,6 @@ function genProblem() {
     shuffle(opts);
     return {text:`다음 직각삼각형에서 ${ratio} ${angle}의 값은?`, fig:realTriSVG(tri,angle), options:opts, answer:ans};
   } else if (t === 1) {
-    // 유형2: 특수각 삼각비 값
     const data = [
       ['sin 30°','1/2'],['sin 45°','√2/2'],['sin 60°','√3/2'],
       ['cos 30°','√3/2'],['cos 45°','√2/2'],['cos 60°','1/2'],
@@ -213,7 +208,6 @@ function genProblem() {
     shuffle(opts);
     return {text:`${p[0]} 의 값은?`, fig:'', options:opts, answer:ans};
   } else if (t === 2) {
-    // 유형3: 특수각 + 한 변 → 나머지 변
     const setups = [
       {ang:30, given:'빗변', gv:10, find:'높이', ans:'5'},
       {ang:30, given:'빗변', gv:8, find:'밑변', ans:'4√3'},
@@ -237,7 +231,6 @@ function genProblem() {
     shuffle(opts);
     return {text:`그림과 같은 직각삼각형에서 ${s.find}의 길이는?`, fig:specialAngleSVG(s), options:opts, answer:ans};
   } else {
-    // 유형4: 피타고라스
     const tri = rightTris[Math.floor(Math.random()*rightTris.length)];
     const hide = Math.floor(Math.random()*3);
     let text, ans;
@@ -253,20 +246,15 @@ function genProblem() {
   }
 }
 
-// 세 변 비율 그대로 그리는 직각삼각형
 function realTriSVG(tri, angle) {
-  // 직각: 오른쪽 아래. A각: 왼쪽 아래. B각: 오른쪽 위.
-  // b(가로, 밑변) = tri.b, a(세로, 높이) = tri.a
   const maxDim = 130;
   const scale = maxDim / Math.max(tri.a, tri.b);
-  const bw = tri.b * scale;
-  const bh = tri.a * scale;
+  const bw = tri.b * scale, bh = tri.a * scale;
   const padding = 28;
-  const svgW = bw + padding*2 + 20;
-  const svgH = bh + padding*2;
-  const x1 = padding, y1 = padding + bh;       // A (왼쪽 아래)
-  const x2 = padding + bw, y2 = padding + bh;  // 직각 (오른쪽 아래)
-  const x3 = padding + bw, y3 = padding;       // B (오른쪽 위)
+  const svgW = bw + padding*2 + 20, svgH = bh + padding*2;
+  const x1 = padding, y1 = padding + bh;       
+  const x2 = padding + bw, y2 = padding + bh;  
+  const x3 = padding + bw, y3 = padding;       
   return `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
     <polygon points="${x1},${y1} ${x2},${y2} ${x3},${y3}" fill="#fff8e1" stroke="#4A3526" stroke-width="2"/>
     <rect x="${x2-12}" y="${y2-12}" width="12" height="12" fill="none" stroke="#4A3526" stroke-width="1.5"/>
@@ -278,24 +266,18 @@ function realTriSVG(tri, angle) {
   </svg>`;
 }
 
-// 특수각: 실제 각도대로 그리기
 function specialAngleSVG(s) {
   const rad = s.ang * Math.PI / 180;
-  // 직각이 오른쪽 아래, 표시 각도(s.ang)는 왼쪽 아래에 위치
-  // 밑변(가로) = base, 높이(세로) = base * tan(ang)
-  // 적당한 크기로: 가장 큰 변을 130으로 맞춤
   const maxDim = 130;
   let bw, bh;
   if (s.ang === 30) { bw = maxDim; bh = bw * Math.tan(rad); }
   else if (s.ang === 45) { bw = maxDim; bh = bw; }
   else { bh = maxDim; bw = bh / Math.tan(rad); }
   const padding = 34;
-  const svgW = bw + padding*2 + 14;
-  const svgH = bh + padding*2;
+  const svgW = bw + padding*2 + 14, svgH = bh + padding*2;
   const x1 = padding, y1 = padding + bh;
   const x2 = padding + bw, y2 = padding + bh;
   const x3 = padding + bw, y3 = padding;
-  // 라벨 결정
   let lb='?', lh='?', lc='?';
   const setLabel = (which, val) => {
     if (which==='밑변') lb = val;
@@ -303,8 +285,6 @@ function specialAngleSVG(s) {
     else lc = val;
   };
   setLabel(s.given, ''+s.gv);
-  // find는 ?
-  // 호 표시 (각도 표시) - 왼쪽 아래
   const arcR = 22;
   const arcEndX = x1 + arcR * Math.cos(-rad);
   const arcEndY = y1 + arcR * Math.sin(-rad);
@@ -337,6 +317,7 @@ function setMode(m) {
 }
 
 function loadProblem() {
+  loadingProblem = false;
   currentProblem = genProblem();
   document.getElementById('ptext').textContent = currentProblem.text;
   document.getElementById('pfig').innerHTML = currentProblem.fig;
@@ -344,12 +325,13 @@ function loadProblem() {
     b.textContent = `${'ABC'[i]}.  ${currentProblem.options[i]}`;
     b.classList.remove('wrong','right');
     b.style.background = '';
-    b.style.color = '';   // ← color 도 명시적으로 초기화
+    b.style.color = '';   
+    b.disabled = false;
   });
   setMode('solve');
 }
 
-// ---------- 답안 클릭 (단순 click) ----------
+// ---------- 답안 클릭 (오답 패널티 적용) ----------
 document.querySelectorAll('.ans-btn').forEach(btn => {
   const idx = parseInt(btn.dataset.idx);
   btn.addEventListener('click', () => {
@@ -361,18 +343,20 @@ document.querySelectorAll('.ans-btn').forEach(btn => {
       renderJumps();
       setTimeout(() => setMode('jump'), 350);
     } else {
+      // 오답: 버튼 잠금 후 랜덤 무작위 튕겨나가기
       btn.classList.add('wrong');
       btn.disabled = true;
+      const dirs = [-1, 1];
+      const randomDir = dirs[Math.floor(Math.random() * dirs.length)];
+      jumpsLeft = 1; // 1회 강제 소모용
+      setMode('jump');
+      doJump(randomDir, 1.0); // 풀게이지(1.0) 무작위 점프
     }
   });
 });
 
-// ---------- 화살표 꾹누르기 → 점프 ----------
 function startCharge(dir, el) {
-  if (mode !== 'jump') return;
-  if (!player.onGround) return;
-  if (chargingActive) return;
-  if (jumpsLeft <= 0) return;
+  if (mode !== 'jump' || !player.onGround || chargingActive || jumpsLeft <= 0) return;
   chargingActive = true;
   chargingDir = dir;
   chargingBtnEl = el;
@@ -391,15 +375,8 @@ function endCharge(el) {
   chargingDir = 0;
 }
 function bindHoldButton(btn, dir) {
-  btn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    btn.setPointerCapture(e.pointerId);
-    startCharge(dir, btn);
-  });
-  btn.addEventListener('pointerup', (e) => {
-    e.preventDefault();
-    endCharge(btn);
-  });
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); btn.setPointerCapture(e.pointerId); startCharge(dir, btn); });
+  btn.addEventListener('pointerup', (e) => { e.preventDefault(); endCharge(btn); });
   btn.addEventListener('pointercancel', () => endCharge(btn));
 }
 bindHoldButton(document.getElementById('leftBtn'), -1);
@@ -414,9 +391,11 @@ function doJump(dir, power) {
   renderJumps();
 }
 
-// ---------- 물리 ----------
+// ---------- 물리 (대각선 빗면 충돌 판정 적용) ----------
 function rectOverlap(a, b) {
-  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+  let by = b.y, bh = b.h;
+  if (b.type === 'slope' || b.type === 'steep') { by -= 15; bh += 15; }
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < by+bh && a.y+a.h > by;
 }
 
 function update() {
@@ -432,13 +411,14 @@ function update() {
 
   if (!player.onGround) player.vy += GRAVITY;
 
+  // 슬라이드 블럭에서 아주 조금씩 계속 미끄러지도록 처리
   if (player.onGround) {
     if (player.groundType === 'slope') {
       player.vx += player.slopeDir * SLIDE_NORMAL;
-      if (Math.abs(player.vx) > 1.5) player.vx = Math.sign(player.vx)*1.5;
+      if (Math.abs(player.vx) > 0.6) player.vx = Math.sign(player.vx)*0.6;
     } else if (player.groundType === 'steep') {
       player.vx += player.slopeDir * SLIDE_STEEP;
-      if (Math.abs(player.vx) > 4) player.vx = Math.sign(player.vx)*4;
+      if (Math.abs(player.vx) > 1.2) player.vx = Math.sign(player.vx)*1.2;
     } else {
       player.vx *= FRICTION_GROUND;
       if (Math.abs(player.vx) < STOP_THRESHOLD) player.vx = 0;
@@ -456,6 +436,7 @@ function update() {
   }
   if (!player.onGround) {
     for (const p of platforms) {
+      if (p.type === 'slope' || p.type === 'steep') continue; // 빗면은 측면 충돌 무시 (원활하게 위로 이동)
       if (rectOverlap(player, p)) {
         const prevX = player.x - player.vx;
         const wasInsideY = (player.y + player.h > p.y + 2 && player.y < p.y + p.h - 2);
@@ -475,17 +456,26 @@ function update() {
   player.y += player.vy;
   const wasOnGround = player.onGround;
   player.onGround = false;
+  
   for (const p of platforms) {
     if (rectOverlap(player, p)) {
       const prevY = player.y - player.vy;
-      if (player.vy >= 0 && prevY + player.h <= p.y + 1) {
-        player.y = p.y - player.h;
+      let targetY = p.y;
+      
+      // 빗면(대각선)의 표면 높이 계산
+      if (p.type === 'slope' || p.type === 'steep') {
+        let r = (player.x + player.w/2 - p.x) / p.w;
+        r = Math.max(0, Math.min(1, r));
+        targetY = p.y - 15 + (p.dir === 1 ? r * 15 : (1 - r) * 15);
+      }
+      
+      if (player.vy >= 0 && prevY + player.h <= targetY + 12) {
+        player.y = targetY - player.h;
         player.vy = 0;
         player.onGround = true;
         player.groundType = p.type;
         player.slopeDir = p.dir || 0;
-        if (p.type === 'trap') {respawn(); break;}
-      } else if (player.vy < 0 && prevY >= p.y + p.h - 1) {
+      } else if (player.vy < 0 && prevY >= p.y + p.h - 1 && p.type !== 'slope' && p.type !== 'steep') {
         player.y = p.y + p.h;
         player.vy = 0;
         player.vx = 0;
@@ -496,9 +486,14 @@ function update() {
   if (player.x < 6) {player.x = 6; player.vx = Math.abs(player.vx)*WALL_BOUNCE;}
   if (player.x + player.w > WORLD_W - 6) {player.x = WORLD_W - 6 - player.w; player.vx = -Math.abs(player.vx)*WALL_BOUNCE;}
 
-  // 점프 5회 다 쓰고 완전히 멈추면 → 새 문제
-  if (mode === 'jump' && jumpsLeft <= 0 && player.onGround && Math.abs(player.vx) < 0.1 && Math.abs(player.vy) < 0.1) {
-    if (!choco.collected) setTimeout(loadProblem, 400);
+  // 평지에서 멈추거나 경사로 위에서 턴이 종료되면 문제 출제
+  if (mode === 'jump' && jumpsLeft <= 0 && player.onGround && Math.abs(player.vy) < 0.1) {
+    if (player.groundType !== 'flat' || Math.abs(player.vx) < 0.1) {
+      if (!choco.collected && !loadingProblem) {
+        loadingProblem = true;
+        setTimeout(loadProblem, 400);
+      }
+    }
   }
 
   if (!choco.collected) {
@@ -513,11 +508,6 @@ function update() {
   updateCamera();
   for (const pt of particles) {pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.12; pt.life--;}
   particles = particles.filter(p => p.life > 0);
-}
-
-function respawn() {
-  player.x = SPAWN.x; player.y = SPAWN.y;
-  player.vx = 0; player.vy = 0;
 }
 
 function triggerFireworks() {
@@ -535,7 +525,7 @@ function triggerFireworks() {
   }
 }
 
-// ---------- 렌더링 ----------
+// ---------- 렌더링 (대각선 다각형으로 플랫폼 묘사) ----------
 function drawBackground() {
   const g = ctx.createLinearGradient(0,0,0,H);
   g.addColorStop(0, '#FFD9A8');
@@ -564,30 +554,29 @@ function drawBackground() {
 function drawPlatform(p) {
   const y = p.y - camY;
   if (y < -40 || y > H+40) return;
-  if (p.type === 'trap') {
-    ctx.fillStyle = '#d63031';
-    ctx.fillRect(p.x, y, p.w, p.h);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < p.w; i += 8) {
-      ctx.beginPath(); ctx.moveTo(p.x+i, y); ctx.lineTo(p.x+i+4, y+p.h); ctx.stroke();
+  if (p.type === 'slope' || p.type === 'steep') {
+    const color = p.type === 'slope' ? '#8FBC8F' : '#E17055';
+    const stroke = p.type === 'slope' ? '#2d5a3d' : '#8b0000';
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    // 시각적으로 대각선 블록 생성
+    if (p.dir === 1) { 
+      ctx.moveTo(p.x, y - 15);
+      ctx.lineTo(p.x + p.w, y);
+      ctx.lineTo(p.x + p.w, y + p.h);
+      ctx.lineTo(p.x, y + p.h);
+    } else { 
+      ctx.moveTo(p.x, y);
+      ctx.lineTo(p.x + p.w, y - 15);
+      ctx.lineTo(p.x + p.w, y + p.h);
+      ctx.lineTo(p.x, y + p.h);
     }
-    ctx.strokeStyle = '#8b0000';
-    ctx.strokeRect(p.x, y, p.w, p.h);
-  } else if (p.type === 'slope') {
-    ctx.fillStyle = '#8FBC8F';
-    ctx.fillRect(p.x, y, p.w, p.h);
-    ctx.strokeStyle = '#2d5a3d'; ctx.lineWidth = 2;
-    ctx.strokeRect(p.x, y, p.w, p.h);
-    ctx.fillStyle = '#2d5a3d'; ctx.font = 'bold 9px sans-serif';
-    ctx.fillText('~ SLIDE ~', p.x+8, y+12);
-  } else if (p.type === 'steep') {
-    ctx.fillStyle = '#E17055';
-    ctx.fillRect(p.x, y, p.w, p.h);
-    ctx.strokeStyle = '#8b0000'; ctx.lineWidth = 2;
-    ctx.strokeRect(p.x, y, p.w, p.h);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif';
-    ctx.fillText('>> STEEP >>', p.x+6, y+12);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = p.type === 'slope' ? '#2d5a3d' : '#fff'; 
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillText(p.type === 'slope' ? '~ SLIDE ~' : '>> STEEP >>', p.x+8, y+10);
   } else {
     ctx.fillStyle = '#C9A96B';
     ctx.fillRect(p.x, y, p.w, p.h);
@@ -649,59 +638,47 @@ function drawPlayer() {
   ctx.beginPath();
   ctx.ellipse(px+player.w/2, py+player.h+2, player.w/2, 3, 0, 0, Math.PI*2);
   ctx.fill();
-  // 다리(짙은 갈색 바지)
   ctx.fillStyle = '#3A2820';
   ctx.fillRect(px+3, py+22, 6, 10);
   ctx.fillRect(px+13, py+22, 6, 10);
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(px+2, py+30, 8, 3);
   ctx.fillRect(px+12, py+30, 8, 3);
-  // 몸통(베이지 블레이저)
   ctx.fillStyle = '#C9A96B';
   ctx.fillRect(px+2, py+13, 18, 12);
-  // 라펠(다크브라운)
   ctx.fillStyle = '#3A2820';
   ctx.beginPath();
   ctx.moveTo(px+2, py+13); ctx.lineTo(px+6, py+13); ctx.lineTo(px+9, py+20); ctx.lineTo(px+5, py+22); ctx.closePath(); ctx.fill();
   ctx.beginPath();
   ctx.moveTo(px+20, py+13); ctx.lineTo(px+16, py+13); ctx.lineTo(px+13, py+20); ctx.lineTo(px+17, py+22); ctx.closePath(); ctx.fill();
-  // 흰 셔츠
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
   ctx.moveTo(px+9, py+13); ctx.lineTo(px+13, py+13); ctx.lineTo(px+11, py+18); ctx.closePath(); ctx.fill();
-  // 녹색 체크 넥타이
   ctx.fillStyle = '#2d5a3d';
   ctx.beginPath();
   ctx.moveTo(px+10, py+15); ctx.lineTo(px+12, py+15); ctx.lineTo(px+13, py+22); ctx.lineTo(px+9, py+22); ctx.closePath(); ctx.fill();
   ctx.strokeStyle = '#a0c890'; ctx.lineWidth = 0.6;
   ctx.beginPath(); ctx.moveTo(px+9, py+17); ctx.lineTo(px+13, py+17); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(px+9, py+20); ctx.lineTo(px+13, py+20); ctx.stroke();
-  // 노란 엠블럼
   ctx.fillStyle = '#f0d020';
   ctx.fillRect(px+15, py+15, 3, 4);
-  // 머리(검은 머리)
   ctx.fillStyle = '#1a1a1a';
   ctx.beginPath(); ctx.arc(px+11, py+7, 8, 0, Math.PI*2); ctx.fill();
-  // 얼굴
   ctx.fillStyle = '#ffe0b0';
   ctx.beginPath(); ctx.arc(px+11, py+9, 6, 0, Math.PI*2); ctx.fill();
-  // 앞머리
   ctx.fillStyle = '#1a1a1a';
   ctx.beginPath(); ctx.ellipse(px+11, py+4, 8, 4.5, 0, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(px+8, py+6, 4, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(px+14, py+6, 3.5, 0, Math.PI*2); ctx.fill();
-  // 눈
   ctx.fillStyle = '#000';
   ctx.beginPath(); ctx.arc(px+8+f*0.5, py+10, 1.4, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(px+14+f*0.5, py+10, 1.4, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle = '#fff';
   ctx.beginPath(); ctx.arc(px+8+f*0.5, py+9.5, 0.5, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(px+14+f*0.5, py+9.5, 0.5, 0, Math.PI*2); ctx.fill();
-  // 볼터치
   ctx.fillStyle = 'rgba(255,150,150,0.65)';
   ctx.beginPath(); ctx.arc(px+7, py+12, 1.6, 0, Math.PI*2); ctx.fill();
   ctx.beginPath(); ctx.arc(px+15, py+12, 1.6, 0, Math.PI*2); ctx.fill();
-  // 입
   ctx.strokeStyle = '#5a3a1a'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(px+11, py+12.5, 1.2, 0.2, Math.PI-0.2); ctx.stroke();
 }
@@ -718,6 +695,7 @@ function drawParticles() {
 }
 
 function drawHUD() {
+  const GOAL_HEIGHT_M = Math.round((WORLD_H - 80 - choco.y) / 10);
   const h = Math.max(0, Math.round((WORLD_H - 80 - player.y) / 10));
   ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(8, 8, 170, 28);
