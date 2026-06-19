@@ -79,7 +79,18 @@ html_code = """
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <!-- Babel (JSX 컴파일용 CDN) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- ★ 수정: 버전 고정(7.22.5)으로 동작 안정화 -->
+    <script src="https://unpkg.com/@babel/standalone@7.22.5/babel.min.js"></script>
+
+    <!-- ★ 수정: classic JSX runtime을 쓰는 커스텀 프리셋 등록 -->
+    <!-- 이게 있어야 Babel이 변환 결과에 import 문을 넣지 않습니다. -->
+    <script>
+        Babel.registerPreset('react-classic', {
+            presets: [
+                [Babel.availablePresets['react'], { runtime: 'classic' }]
+            ]
+        });
+    </script>
 
     <style>
         body { margin: 0; padding: 0; background-color: #0a0a0a; overflow: hidden; }
@@ -88,7 +99,8 @@ html_code = """
 <body>
     <div id="root"></div>
 
-    <script type="text/babel">
+    <!-- ★ 수정: data-presets="react-classic" 속성 추가 -->
+    <script type="text/babel" data-presets="react-classic">
         const { useState, useEffect, useRef, useCallback } = React;
 
         // 아이콘 SVG 컴포넌트
